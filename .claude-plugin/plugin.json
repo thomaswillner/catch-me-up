@@ -1,6 +1,6 @@
 {
   "name": "catch-me-up",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "A side pane with a live catch-up summary of your Claude Code session: why it started, what was done, where things stand, and what needs you",
   "author": {
     "name": "Oliver Wang"

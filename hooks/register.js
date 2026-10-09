@@ -31,12 +31,15 @@ let textPath = ''
 async function writeText($) {
   if (!summary) return
   if (!textPath) {
-    const r = await $.process.run(['printenv', 'HOME'])
-    if (r.exitCode || !r.stdout.trim()) throw new Error('HOME not found')
-    textPath = r.stdout.trim() + TEXT_FILE
+    const home = await $.env.get('HOME')
+    if (!home) throw new Error('HOME not found')
+    textPath = home + TEXT_FILE
   }
   await $.fs.write(textPath, summary + '\n')
 }
+
+// Failures land in the store so a missing file can be explained
+const noteTextError = ($) => (err) => $.store.set('textError', String(err?.message ?? err)).catch(() => {})
 
 async function load($) {
   sessionId = await $.session.id()
@@ -47,7 +50,7 @@ async function load($) {
   updatedAt = saved?.updatedAt ?? 0
   status = ''
   $.ui.invalidate('ui.render')
-  await writeText($).catch(() => {})
+  await writeText($).catch(noteTextError($))
 }
 
 async function save($) {
@@ -56,7 +59,7 @@ async function save($) {
   const order = [sessionId, ...((await $.store.get('order')) ?? []).filter((id) => id !== sessionId)]
   for (const id of order.slice(KEEP_SESSIONS)) await $.store.delete('session:' + id)
   await $.store.set('order', order.slice(0, KEEP_SESSIONS))
-  await writeText($).catch(() => {})
+  await writeText($).catch(noteTextError($))
 }
 
 const fingerprint = (m) => m.role + '\n' + m.text.slice(0, 200) + '\n' + m.toolUses.map((t) => t.tool_use_id).join(',')
