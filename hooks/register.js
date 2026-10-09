@@ -9,6 +9,9 @@ const MODEL = 'haiku'
 const CHUNK_CHARS = 100_000
 // How many sessions' summaries the store keeps
 const KEEP_SESSIONS = 100
+// Where the current session's summary is also kept as plain text, under the
+// home directory, so Open can show it in a text editor
+const TEXT_FILE = '/.claude/catch-me-up/summary.md'
 
 // The current session's summary, how many transcript messages it covers, and
 // a fingerprint of the last of them
@@ -21,6 +24,19 @@ let status = ''
 let running = false
 // The update asked for while one was running: null, or its onlyIfWork
 let queued = null
+let textPath = ''
+
+// Keep the plain-text copy in step with the summary. The pane's text can't be
+// selected with the mouse; a text editor's can.
+async function writeText($) {
+  if (!summary) return
+  if (!textPath) {
+    const r = await $.process.run(['printenv', 'HOME'])
+    if (r.exitCode || !r.stdout.trim()) throw new Error('HOME not found')
+    textPath = r.stdout.trim() + TEXT_FILE
+  }
+  await $.fs.write(textPath, summary + '\n')
+}
 
 async function load($) {
   sessionId = await $.session.id()
@@ -31,6 +47,7 @@ async function load($) {
   updatedAt = saved?.updatedAt ?? 0
   status = ''
   $.ui.invalidate('ui.render')
+  await writeText($).catch(() => {})
 }
 
 async function save($) {
@@ -39,6 +56,7 @@ async function save($) {
   const order = [sessionId, ...((await $.store.get('order')) ?? []).filter((id) => id !== sessionId)]
   for (const id of order.slice(KEEP_SESSIONS)) await $.store.delete('session:' + id)
   await $.store.set('order', order.slice(0, KEEP_SESSIONS))
+  await writeText($).catch(() => {})
 }
 
 const fingerprint = (m) => m.role + '\n' + m.text.slice(0, 200) + '\n' + m.toolUses.map((t) => t.tool_use_id).join(',')
@@ -204,6 +222,23 @@ export function register(on) {
                 if (!summary) return
                 const r = await $.ui.copy({ text: summary, surface: press.surface })
                 $.ui.toast(r.isCopied ? 'Summary copied' : 'Copy failed: ' + r.reason)
+              },
+            }),
+            Button({
+              key: 'open',
+              label: 'Open',
+              hotkey: 'o',
+              plain: true,
+              onPress: async () => {
+                if (!summary) return
+                try {
+                  await writeText($)
+                  // -t: the default text editor
+                  const r = await $.process.run(['open', '-t', textPath])
+                  if (r.exitCode) $.ui.toast('Open failed: ' + (r.stderr.trim() || 'exit ' + r.exitCode))
+                } catch (err) {
+                  $.ui.toast('Open failed: ' + err.message)
+                }
               },
             }),
             Text({ dimColor: true, children: [status || when] }),
